@@ -1,0 +1,295 @@
+---
+title: "Predicting Song Preference in Spotify Using K-Nearest-Neighbor Classifier"
+author: "Putranegara Riauwindu"
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+    encoding=encoding,
+    output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This GitHub repository presents a project aimed at constructing a K-Nearest-Neighbor (KNN) classifier model using the Spotify dataset in R. The primary objective of this project is to anticipate the song preferences of a fictional individual named Putra. The model classifies songs as either "like" or "dislike" based on their inherent characteristics.
+
+The Spotify dataset, obtained from the popular music streaming platform, encompasses a diverse range of attributes, including song duration, tempo, danceability, energy, and more. Each song in the dataset has been labeled as either "like" or "dislike" according to Putra's personal preferences. Two distinct datasets were utilized for this analysis:
+
+1. spotify.csv: This dataset served as the training set for the KNN model.
+
+2. spot100.csv: This dataset was utilized as a song pool for prediction purposes, determining whether a selected song would be liked or disliked by Putra.
+
+## Importing Relevant Libraries
+
+Before answering the assignment questions, relevant libraries need to be imported first. Below code is used to import libraries.
+
+```{r Importing Relevant Libraries, message=FALSE, warning=FALSE, comment=FALSE}
+library(tidyverse)
+library(naniar)
+library(caret)
+library(FNN)
+library(carData)
+library(gridExtra)
+library(e1071)
+```
+
+## Importing and Manipulating Dataset
+
+**1. Importing spot100.csv dataset and picking one song for prediction purpose**
+
+```{r Exploring Spotify 100 Dataset}
+# Importing the dataset into the R environment
+data <- read.csv("spot100.csv")
+```
+
+Song titled **Photograph** will be picked for the prediction purposes.
+
+```{r Checking the picked song attributes}
+data[data$name == "Photograph", ]
+song <- data[data$name == "Photograph", ]
+```
+
+The picked song has the following attributes\
+- danceability: 0.718
+- energy: 0.379
+- loudnesss: -10.48
+- speechiness: 0.0359
+- acousticness: 0.607
+- instrumentalness: 0.000472
+- liveness: 0.0986
+- tempo: 108.033
+- duration: 4.32
+- valence: 0.22
+
+**2. Importing and exploring spotify.csv dataset**
+
+```{r importing spotify.csv dataset}
+spotify <- read.csv("spotify.csv")
+str(spotify)
+```
+
+The variable **target**, the outcome variable, is an `int` type variable in the original dataset. This variable needs to be converted into `factor/categorical` type variable that will be used as the response variable in this model as per prompt instruction. Below code was used to do that.
+
+```{r converting target variable into categorical}
+spotify$target <- as.factor(spotify$target)
+str(spotify$target)
+```
+
+The **target** variable has two unique values/levels which are 0 and 1 in which 0 implies that the song is disliked by Putra and 1 is liked by Putra. Below code is used to tabulate the occurrence of each value in the dataset.
+
+```{r tabulating outcome classes}
+table(spotify$target)
+```
+
+In this dataset, "0" outcome class has 997 records while "1" outcome class has "1020" records. No "NA" value observed in this variable. The outcome variables seems to have around the same frequency otherwise balanced outcome class.
+
+**3. Checking for missing value in the spotify.csv dataset**
+
+```{r checking for NAs value in the dataset}
+# Tabulating the missing value and its percentage using naniar library
+miss_var_summary(spotify)
+# Reconfirm with manual calculation
+cat("Count of missing value in the Spotify dataset is",is.na(spotify) %>% sum())
+```
+
+spotify dataset has no missing value (fortunately). No further imputation is needed.
+
+**4. Removing unnecessary variables from spotify.csv dataset**
+
+```{r removing variables from spotify dataset}
+spotify <- spotify %>%
+  select(-X, -key, -mode, -time_signature)
+colnames(spotify)
+```
+
+## Partitioning spotify.csv dataset into train and test set
+
+```{r partitioning spotify dataset}
+# Setting seed for reproducibility
+set.seed(250)
+
+# Random sampling the dataset index without replacement with 60% for training set
+train_index <- sample(c(1:nrow(spotify)), nrow(spotify)*0.6) 
+
+# Partition the dataset into training and validation set based on the index sampling
+train_df <- spotify[train_index, ]
+valid_df <- spotify[-train_index, ]
+
+# Resetting the index for both train_df and valid_df for ease of subsetting
+rownames(train_df) <- NULL
+rownames(valid_df) <- NULL
+
+# Ensuring the partitioned dataset has been properly set
+paste("number of rows for original dataset:", nrow(spotify))
+paste("number of rows for training set:", nrow(train_df))
+paste("number of rows for validation set:", nrow(valid_df))
+
+```
+
+spotify dataset has been partitioned into training (train_df) and validation(valid_df) set with 60% and 40% observations from the original dataset respectively.
+
+## Performing pairwise t-test for each of the numric variables
+
+Assuming the the data follows the normality assumption, t-test was conducted to check whether specific predictor variables could be used to provide "meaningful" prediction on whether a song will be liked by Putra or not.
+
+To do this, the spotify.csv train set was subsetted into two different sets, one with the outcome of 1 and the other is for 0. student t-test were then performed for each pair of the predictor in each subset.
+
+```{r variable selection}
+# Split the dataframe into two groups based on target variable (0 and 1)
+spotify_group0 <- train_df[train_df$target == 0, ]
+spotify_group1 <- train_df[train_df$target == 1, ]
+
+# Loop through columns and perform t-test for each of the numeric variables between the two groups
+for (col in names(train_df)) {
+  if (is.numeric(train_df[[col]]) && col != "target") {
+    t_test <- t.test(spotify_group1[[col]], spotify_group0[[col]])
+    print(paste("Variable:", col))
+    print(paste("t-statistic:", t_test$statistic %>% round(2)))
+    print(paste("p-value:", t_test$p.value))
+  }
+}
+```
+
+In order to screen the variables that are statistically significantly different, 0.05 significance level to discern the variables was used. Based on the alpha threshold of 0.05, below are the variables that is statistically significantly different between the two groups:
+
+Numeric Variables: **acousticness**, **danceability**, **duration_ms**, **instrumentalness**, **loudness**, **speechiness**, **valence**
+
+Below are the list of variables with student t-test p-value result is more than 0.05: **energy**, **liveness**, **tempo** 
+
+The variable that is not statistically significantly different will be removed before KNN model is developed. it makes sense to remove the variables that is not statistically significantly different based on the t-test result because those variables would not provide sufficient "power" in discerning/discriminating the two different outcome class in both groups. 
+
+This is because simply we could not tell whether the difference in the outcome, between 0 and 1, might be caused by the above-mentioned variables because the variable`s characteristic, in this context is measured by the mean, seems to be the "same" in both groups. The inclusion of these variables will add to the model complexity without improving the predictive power.
+
+In this case, it seems that the song that Putra liked and disliked, has more or less the same **energy**, **liveness**, and **tempo**.
+
+Below code was used to remove the **energy**, **liveness**, and **tempo** variables from the dataset.
+
+```{r removing variables with p-value more than 0.05}
+# Removing variables from original dataset and rearranging outcome column for ease of handling
+spotify <- spotify %>%
+  select(-energy, -liveness, -tempo) %>%
+  select(-target,everything(), target)
+
+# Removing variables from training dataset and rearranging outcome column for ease of handling
+train_df <- train_df %>%
+  select(-energy, -liveness, -tempo) %>%
+  select(-target,everything(), target)
+
+# Removing variables from validation dataset and rearranging outcome column for ease of handling
+valid_df <- valid_df %>%
+  select(-energy, -liveness, -tempo) %>%
+  select(-target,everything(), target)
+
+```
+
+## Preprocessing dataset
+
+In normalizing the dataset, i preprocessed all dataset relevant to this question which are the original,variable-removed spotify dataset as well as the training and validation dataset.
+
+I didn't include the **song_title** and **artist** predictor variable because it does not need to be normalized due to its character type. I also do not think that this predictor will be any of use to my KNN model input because **song_title** and **artists** just simply showing us the title and the artist of the song that Georges liked. The attributes/characteristics of these songs are already described by the other numerical predictors. These two variables will be relevant later when i try to find the n nearest neighbors for my picked song. 
+
+I will also only pick the numeric variables input for my picked song that is associated with the training dataset numeric variables. I removed the **id** as well as the **name** variable from my picked song dataframe. I then converted the **duration** from my picked song dataframe to miliseconds to match the unit in the model training dataset.
+
+Below code was used to normalize the data.
+
+```{r preprocessing the dataset}
+# Initializing normalized training, validation data, complete dataframe to originals
+train_norm_df <- train_df
+valid_norm_df <- valid_df
+spotify_norm <- spotify
+
+# Using preProcess () from the caret package to normalize predictor variables
+norm_values <- preProcess(train_df[,1:7], method=c("center", "scale"))
+train_norm_df[,1:7] <- predict(norm_values, train_df[,1:7])
+valid_norm_df[,1:7] <- predict(norm_values, valid_df[,1:7])
+spotify_norm[,1:7] <- predict(norm_values, spotify[,1:7])
+
+# Preparing my picked song dataframe for the knn model input
+song <- song %>%
+  select(acousticness, danceability, duration, instrumentalness, loudness, speechiness, valence) %>% 
+  mutate(duration_ms = duration * 60 * 1000) %>%
+  select (-duration)
+
+# Normalizing my picked song dataframe
+song_norm <- predict(norm_values, song)
+```
+
+## Building KNN Model and Predicting the Picked Song Preference 
+
+```{r generating predicted classification for the picked song}
+# Creating knn model to predict the classification of my picked song
+song_nn <- knn(train=train_norm_df[,1:7], test=song_norm, cl=train_norm_df[,10], k=7)
+
+# Checking the summary of the knn model prediction, including the 7 nearest neighbors index and distance
+attributes(song_nn)
+```
+
+Based on the knn model prediction, my picked song "Photograph" by Ed-Sheeran will not probably get into Putra`s attention because he might not like it. 
+
+The knn model returned the outcome class of "0" for the picked song and it means that Putra will not like it.
+
+The song`s 7 nearest neighbors from the Putra song list, including the artist and respective outcome class are as follows:
+
+```{r picked song 7 nearest neighbors}
+# Checking for the 7 nearest neighbors of my picked song from the George`s list of song
+train_df[(row.names(train_df)[attr(song_nn, "nn.index")]),8:10]
+```
+
+From the above table, out of 7 nearest neighbors of the picked song, 6 of them were labeled as "0" or Putra didn`t like it. Based on the rule of the majority, knn classified the picked song as "0" thus Putra will probably not like it.
+
+## Determining optimal k-value using training-testing set cross validation
+
+```{r determining optimal k value}
+# Initialize a data frame with two columns: k, and accuracy
+accuracy_df <- data.frame(k=seq(1,14,1), accuracy=rep(0.14))
+
+# Compute knn for different k on validation
+for(i in 1:14){
+  knn.pred <- knn(train_norm_df[,1:7], valid_norm_df[,1:7], 
+                  cl = train_norm_df[,10], k=i)
+  accuracy_df[i,2] <- confusionMatrix(knn.pred, valid_norm_df[,10])$overall[1] %>% round(3)
+}
+
+accuracy_df
+
+```
+
+The above table of k-value along with its associated accuracy returned that when k equals to 9, the model has the highest accuracy. Therefore k=9 will be chosen to develop the updated knn model.
+
+## Plotting k-value vs Model Accuracy
+
+```{r plotting k value vs accuracy}
+ggplot(accuracy_df, mapping=aes(x=k, y=accuracy))+
+  geom_point(color='steelblue', size=2)+
+  theme_light()+
+  ggtitle("Scatterplot of k Value vs Accuracy") +
+  xlab("Number of k") + 
+  ylab("Model Accuracy")+
+  scale_x_continuous(breaks=accuracy_df$k)
+
+```
+
+## Building KNN Model with k=9 and Predicting the Picked Song Preference 
+
+```{r generating predicted classification for the picked song with k equal 9}
+# Creating knn model to predict the classification of my picked song with k=9
+song_nn2 <- knn(train=train_norm_df[,1:7], test=song_norm, cl=train_norm_df[,10], k=9)
+
+# Checking the summary of the knn model prediction, including the 7 nearest neighbors index and distance with k=9
+attributes(song_nn2)
+```
+
+The knn k=9 model classified the picked song outcome class as "0" and Putra might probably not like it. The knn model with k=9 returned the same classification prediction for the picked song as with the previous model with k=7 and it makes sense to me since k=7 and k=9 accuracy only differs as much as 0.8% (percentage difference).
+
+The picked song`s 9 nearest neighbors from the Putra`s song list, including the artist and respective outcome class are as follows:
+
+```{r picked song 9 nearest neighbors}
+# Checking for the 9 nearest neighbors of my picked song from the George`s list of song
+train_df[(row.names(train_df)[attr(song_nn2, "nn.index")]),8:10]
+```
+
+From the above table, out of 9 nearest neighbors of the picked song, 8 of them were labeled as "0" or Putra didn`t like it. Based on the rule of the majority, knn classified my song as "0" thus Putra will probably not like it.
