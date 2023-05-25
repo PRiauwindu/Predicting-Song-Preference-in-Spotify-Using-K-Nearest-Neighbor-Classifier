@@ -1,6 +1,6 @@
 # Predicting Song Preference in Spotify Using K-Nearest-Neighbor Classifier
 
-GitHub Pages: 
+GitHub Pages: https://priauwindu.github.io/Predicting-Song-Preference-in-Spotify-Using-K-Nearest-Neighbor-Classifier/
 
 This GitHub repository contains a project focused on building a K-Nearest-Neighbor (KNN) classifier model using the Spotify dataset in R. The goal of this project is to predict the song preferences of a hypothetical person named Putra, classifying them as either "like" or "dislike" based on their characteristics.
 
